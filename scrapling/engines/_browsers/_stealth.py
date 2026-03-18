@@ -1,3 +1,45 @@
+"""
+【模块功能】
+隐身浏览器会话，提供反检测的浏览器自动化功能。
+
+【核心类】
+- StealthySession: 同步隐身浏览器会话
+- AsyncStealthySession: 异步隐身浏览器会话
+
+【主要特性】
+- Cloudflare绕过：自动解决Cloudflare Turnstile/Interstitial挑战
+- 指纹伪装：支持Canvas噪声、WebGL控制、WebRTC阻止
+- 代理轮换：支持自动代理轮换和重试
+- 页面池：支持多标签页并发管理
+
+【Cloudflare挑战类型】
+- non-interactive: 非交互式挑战
+- managed: 托管式挑战
+- interactive: 交互式挑战
+- embedded: 嵌入式Turnstile
+
+【依赖说明】
+依赖patchright库（Playwright的补丁版本）实现反检测功能
+"""
+
+"""
+【模块功能】
+隐身浏览器会话，提供高级反检测功能的浏览器自动化。
+
+【核心类】
+- StealthySession: 同步隐身浏览器会话
+- AsyncStealthySession: 异步隐身浏览器会话
+
+【主要特性】
+- Cloudflare绕过：自动解决Cloudflare Turnstile/Interstitial验证码
+- 指纹保护：Canvas噪声、WebRTC阻止、WebGL控制
+- 页面池管理：支持多标签页并发
+- 代理轮换：支持自动代理轮换和重试
+- 自动化支持：支持自定义页面操作回调
+
+【依赖说明】
+依赖patchright库（Playwright的隐身补丁版本）实现反检测功能
+"""
 from random import randint
 from re import compile as re_compile
 from time import sleep as time_sleep

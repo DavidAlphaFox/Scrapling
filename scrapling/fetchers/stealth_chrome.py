@@ -1,3 +1,53 @@
+"""
+================================================================================
+Scrapling 隐身浏览器获取器模块 (Stealth Browser Fetcher Module)
+================================================================================
+
+【模块功能】
+提供高级反检测能力的浏览器获取功能。
+使用 patchright（Playwright 的隐身补丁版本）绕过各种反爬虫系统。
+
+【核心类】
+- StealthyFetcher: 隐身浏览器获取器（一次性请求）
+- StealthySession: 隐身浏览器会话（同步）
+- AsyncStealthySession: 隐身浏览器会话（异步）
+
+【主要特性】
+1. Cloudflare 绕过：自动解决 Cloudflare Turnstile 验证
+2. 指纹欺骗：模拟真实浏览器的各种指纹特征
+3. 自动化检测规避：隐藏 webdriver 等自动化特征
+4. 完整的浏览器功能：继承 DynamicFetcher 的所有能力
+
+【使用场景】
+- 有 Cloudflare 保护的网站
+- 检测自动化工具的网站
+- 需要高级反爬虫绑过的场景
+
+【使用示例】
+>>> from scrapling.fetchers import StealthyFetcher, StealthySession
+>>>
+>>> # 一次性请求（自动解决 Cloudflare）
+>>> page = StealthyFetcher.fetch(
+...     'https://nopecha.com/demo/cloudflare',
+...     headless=True,
+...     solve_cloudflare=True
+... )
+>>>
+>>> # 会话模式
+>>> with StealthySession(headless=True, solve_cloudflare=True) as session:
+...     page = session.fetch('https://protected-site.com')
+...     data = page.css('.content').getall()
+
+【与 DynamicFetcher 的区别】
+- DynamicFetcher: 标准浏览器，可能被检测
+- StealthyFetcher: 隐身浏览器，绑过大多数检测
+
+【依赖】
+- patchright: Playwright 的隐身补丁版本
+- browserforge: 浏览器指纹生成
+================================================================================
+"""
+
 from scrapling.core._types import Unpack
 from scrapling.engines._browsers._types import StealthSession
 from scrapling.engines.toolbelt.custom import BaseFetcher, Response
@@ -5,52 +55,71 @@ from scrapling.engines._browsers._stealth import StealthySession, AsyncStealthyS
 
 
 class StealthyFetcher(BaseFetcher):
-    """A `Fetcher` class type which is a completely stealthy built on top of Chromium.
+    """隐身浏览器获取器 - 绑过反爬虫检测的高级浏览器获取器
 
-    It works as real browsers passing almost all online tests/protections with many customization options.
+    【功能说明】
+    基于 patchright（Playwright 的隐身版本）实现的浏览器获取器。
+    能够绑过 Cloudflare Turnstile、DataDome 等反爬虫系统。
+
+    【与 DynamicFetcher 的区别】
+    - 使用 patchright 而非 playwright
+    - 内置指纹欺骗和自动化检测规避
+    - 支持自动解决 Cloudflare 验证码
+
+    【性能考虑】
+    - 比 DynamicFetcher 略慢（因为额外的隐身处理）
+    - 建议仅在需要绑过反爬虫时使用
+
+    【重要参数说明】
+    - solve_cloudflare: 自动解决 Cloudflare（默认 False）
+    - google_search: 添加 Google Referer（默认启用）
+    - 其余参数与 DynamicFetcher 相同
     """
 
     @classmethod
     def fetch(cls, url: str, **kwargs: Unpack[StealthSession]) -> Response:
-        """
-        Opens up a browser and do your request based on your chosen options below.
+        """打开隐身浏览器并获取网页内容（同步版本）
 
-        :param url: Target url.
-        :param headless: Run the browser in headless/hidden (default), or headful/visible mode.
-        :param disable_resources: Drop requests for unnecessary resources for a speed boost.
-            Requests dropped are of type `font`, `image`, `media`, `beacon`, `object`, `imageset`, `texttrack`, `websocket`, `csp_report`, and `stylesheet`.
-        :param blocked_domains: A set of domain names to block requests to. Subdomains are also matched (e.g., ``"example.com"`` blocks ``"sub.example.com"`` too).
-        :param useragent: Pass a useragent string to be used. Otherwise the fetcher will generate a real Useragent of the same browser and use it.
-        :param cookies: Set cookies for the next request.
-        :param network_idle: Wait for the page until there are no network connections for at least 500 ms.
-        :param timeout: The timeout in milliseconds that is used in all operations and waits through the page. The default is 30,000
-        :param wait: The time (milliseconds) the fetcher will wait after everything finishes before closing the page and returning the ` Response ` object.
-        :param page_action: Added for automation. A function that takes the `page` object and does the automation you need.
-        :param wait_selector: Wait for a specific CSS selector to be in a specific state.
-        :param init_script: An absolute path to a JavaScript file to be executed on page creation for all pages in this session.
-        :param locale: Specify user locale, for example, `en-GB`, `de-DE`, etc. Locale will affect navigator.language value, Accept-Language request header value as well as number and date formatting
-            rules. Defaults to the system default locale.
-        :param timezone_id: Changes the timezone of the browser. Defaults to the system timezone.
-        :param wait_selector_state: The state to wait for the selector given with `wait_selector`. The default state is `attached`.
-        :param solve_cloudflare: Solves all types of the Cloudflare's Turnstile/Interstitial challenges before returning the response to you.
-        :param real_chrome: If you have a Chrome browser installed on your device, enable this, and the Fetcher will launch an instance of your browser and use it.
-        :param hide_canvas: Add random noise to canvas operations to prevent fingerprinting.
-        :param block_webrtc: Forces WebRTC to respect proxy settings to prevent local IP address leak.
-        :param allow_webgl: Enabled by default. Disabling it disables WebGL and WebGL 2.0 support entirely. Disabling WebGL is not recommended as many WAFs now check if WebGL is enabled.
-        :param load_dom: Enabled by default, wait for all JavaScript on page(s) to fully load and execute.
-        :param cdp_url: Instead of launching a new browser instance, connect to this CDP URL to control real browsers through CDP.
-        :param google_search: Enabled by default, Scrapling will set a Google referer header.
-        :param extra_headers: A dictionary of extra headers to add to the request. _The referer set by `google_search` takes priority over the referer set here if used together._
-        :param proxy: The proxy to be used with requests, it can be a string or a dictionary with the keys 'server', 'username', and 'password' only.
-        :param user_data_dir: Path to a User Data Directory, which stores browser session data like cookies and local storage. The default is to create a temporary directory.
-        :param extra_flags: A list of additional browser flags to pass to the browser on launch.
-        :param selector_config: The arguments that will be passed in the end while creating the final Selector's class.
-        :param additional_args: Additional arguments to be passed to Playwright's context as additional settings, and it takes higher priority than Scrapling's settings.
-        :return: A `Response` object.
+        【功能说明】
+        创建临时隐身浏览器实例，访问指定 URL，自动绑过检测并返回页面。
+        请求完成后自动关闭浏览器。
+
+        【特有参数】
+        :param url: 目标 URL
+        :param solve_cloudflare: 自动解决 Cloudflare Turnstile 验证（默认 False）
+        :param hide_canvas: 添加随机噪声防止 Canvas 指纹（默认 False）
+        :param block_webrtc: 强制 WebRTC 使用代理防止 IP 泄露（默认 False）
+        :param allow_webgl: 启用 WebGL（默认 True，禁用可能导致被检测）
+        :param timezone_id: 设置浏览器时区
+        :param user_data_dir: 用户数据目录，存储 cookies 和本地存储
+
+        【继承参数】
+        继承 DynamicFetcher 的所有参数：
+        :param headless: 无头模式（默认 True）
+        :param disable_resources: 禁用资源加载提升速度
+        :param blocked_domains: 封锁的域名列表
+        :param useragent: 自定义 User-Agent
+        :param cookies: 预设 cookies
+        :param network_idle: 等待网络空闲
+        :param timeout: 操作超时时间（毫秒）
+        :param wait: 额外等待时间（毫秒）
+        :param page_action: 页面操作函数
+        :param wait_selector: 等待的 CSS 选择器
+        :param init_script: 页面创建时执行的 JS 文件路径
+        :param locale: 用户区域设置
+        :param wait_selector_state: 选择器状态（attached/visible/hidden）
+        :param real_chrome: 使用本地 Chrome 浏览器
+        :param cdp_url: 连接到现有浏览器的 CDP URL
+        :param google_search: 添加 Google Referer 头（默认启用）
+        :param extra_headers: 额外的请求头
+        :param proxy: 代理设置
+        :param extra_flags: 额外的浏览器启动参数
+        :param selector_config: Selector 类的配置参数
+        :param additional_args: 传递给 Playwright context 的额外参数
+
+        :return: Response 对象，包含页面内容和选择器
         """
-        selector_config = kwargs.get("selector_config", {}) or kwargs.get(
-            "custom_config", {}
-        )  # Checking `custom_config` for backward compatibility
+        selector_config = kwargs.get("selector_config", {}) or kwargs.get("custom_config", {})
         if not isinstance(selector_config, dict):
             raise TypeError("Argument `selector_config` must be a dictionary.")
 
@@ -61,45 +130,18 @@ class StealthyFetcher(BaseFetcher):
 
     @classmethod
     async def async_fetch(cls, url: str, **kwargs: Unpack[StealthSession]) -> Response:
-        """
-        Opens up a browser and do your request based on your chosen options below.
+        """打开隐身浏览器并获取网页内容（异步版本）
 
-        :param url: Target url.
-        :param headless: Run the browser in headless/hidden (default), or headful/visible mode.
-        :param disable_resources: Drop requests for unnecessary resources for a speed boost.
-            Requests dropped are of type `font`, `image`, `media`, `beacon`, `object`, `imageset`, `texttrack`, `websocket`, `csp_report`, and `stylesheet`.
-        :param blocked_domains: A set of domain names to block requests to. Subdomains are also matched (e.g., ``"example.com"`` blocks ``"sub.example.com"`` too).
-        :param useragent: Pass a useragent string to be used. Otherwise the fetcher will generate a real Useragent of the same browser and use it.
-        :param cookies: Set cookies for the next request.
-        :param network_idle: Wait for the page until there are no network connections for at least 500 ms.
-        :param timeout: The timeout in milliseconds that is used in all operations and waits through the page. The default is 30,000
-        :param wait: The time (milliseconds) the fetcher will wait after everything finishes before closing the page and returning the ` Response ` object.
-        :param page_action: Added for automation. A function that takes the `page` object and does the automation you need.
-        :param wait_selector: Wait for a specific CSS selector to be in a specific state.
-        :param init_script: An absolute path to a JavaScript file to be executed on page creation for all pages in this session.
-        :param locale: Specify user locale, for example, `en-GB`, `de-DE`, etc. Locale will affect navigator.language value, Accept-Language request header value as well as number and date formatting
-            rules. Defaults to the system default locale.
-        :param timezone_id: Changes the timezone of the browser. Defaults to the system timezone.
-        :param wait_selector_state: The state to wait for the selector given with `wait_selector`. The default state is `attached`.
-        :param solve_cloudflare: Solves all types of the Cloudflare's Turnstile/Interstitial challenges before returning the response to you.
-        :param real_chrome: If you have a Chrome browser installed on your device, enable this, and the Fetcher will launch an instance of your browser and use it.
-        :param hide_canvas: Add random noise to canvas operations to prevent fingerprinting.
-        :param block_webrtc: Forces WebRTC to respect proxy settings to prevent local IP address leak.
-        :param allow_webgl: Enabled by default. Disabling it disables WebGL and WebGL 2.0 support entirely. Disabling WebGL is not recommended as many WAFs now check if WebGL is enabled.
-        :param load_dom: Enabled by default, wait for all JavaScript on page(s) to fully load and execute.
-        :param cdp_url: Instead of launching a new browser instance, connect to this CDP URL to control real browsers through CDP.
-        :param google_search: Enabled by default, Scrapling will set a Google referer header.
-        :param extra_headers: A dictionary of extra headers to add to the request. _The referer set by `google_search` takes priority over the referer set here if used together._
-        :param proxy: The proxy to be used with requests, it can be a string or a dictionary with the keys 'server', 'username', and 'password' only.
-        :param user_data_dir: Path to a User Data Directory, which stores browser session data like cookies and local storage. The default is to create a temporary directory.
-        :param extra_flags: A list of additional browser flags to pass to the browser on launch.
-        :param selector_config: The arguments that will be passed in the end while creating the final Selector's class.
-        :param additional_args: Additional arguments to be passed to Playwright's context as additional settings, and it takes higher priority than Scrapling's settings.
-        :return: A `Response` object.
+        【功能说明】
+        异步版本的 fetch 方法，功能完全相同。
+        适用于异步爬虫框架或高并发场景。
+
+        【参数说明】
+        与 fetch() 方法参数完全相同，详见 fetch() 文档。
+
+        :return: Response 对象
         """
-        selector_config = kwargs.get("selector_config", {}) or kwargs.get(
-            "custom_config", {}
-        )  # Checking `custom_config` for backward compatibility
+        selector_config = kwargs.get("selector_config", {}) or kwargs.get("custom_config", {})
         if not isinstance(selector_config, dict):
             raise TypeError("Argument `selector_config` must be a dictionary.")
 

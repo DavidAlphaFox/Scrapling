@@ -1,3 +1,22 @@
+"""
+【模块功能】
+页面池管理，用于管理浏览器标签页的状态和并发。
+
+【核心类】
+- PageInfo: 页面信息数据类，跟踪页面状态和URL
+- PagePool: 页面池管理类，管理多个浏览器标签页
+
+【主要特性】
+- 状态跟踪：跟踪页面的ready/busy/error状态
+- 线程安全：使用RLock保证多线程环境下的安全性
+- 容量限制：限制最大页面数量，防止资源耗尽
+- 自动清理：支持清理错误状态的页面
+
+【类型定义】
+- PageState: 页面状态类型（"ready" | "busy" | "error"）
+- PageType: 页面类型变量（SyncPage | AsyncPage）
+"""
+
 from threading import RLock
 from dataclasses import dataclass
 

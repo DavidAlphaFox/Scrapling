@@ -1,3 +1,34 @@
+"""
+================================================================================
+Scrapling 爬虫引擎模块 (Crawler Engine Module)
+================================================================================
+
+【模块功能】
+爬虫的核心执行引擎，协调调度器、会话管理器和检查点系统，
+实现并发爬取、请求处理、断点续爬等功能。
+
+【核心类】
+- CrawlerEngine: 爬虫引擎，协调整个爬取过程
+
+【主要职责】
+1. 并发控制：管理全局和每域名的并发限制
+2. 请求处理：下载页面、执行回调、处理结果
+3. 调度协调：与调度器配合管理请求队列
+4. 统计收集：记录爬取过程中的各项统计
+5. 断点续爬：保存和恢复爬取状态
+6. 流式输出：支持实时返回爬取结果
+
+【工作流程】
+1. 初始化调度器、会话管理器、统计对象
+2. 从检查点恢复或从 start_urls 开始
+3. 循环处理调度器中的请求
+4. 对每个请求：下载 -> 检测封锁 -> 执行回调
+5. 处理回调返回的 Request 或数据项
+6. 定期保存检查点
+7. 完成后返回统计信息
+================================================================================
+"""
+
 import json
 import pprint
 from pathlib import Path
@@ -19,11 +50,27 @@ if TYPE_CHECKING:
 
 
 def _dump(obj: Dict) -> str:
+    """格式化字典为 JSON 字符串"""
     return json.dumps(obj, indent=4)
 
 
 class CrawlerEngine:
-    """Orchestrates the crawling process."""
+    """爬虫引擎 - 协调整个爬取过程
+
+    【功能说明】
+    爬虫的核心执行引擎，负责：
+    - 管理请求的下载和处理
+    - 协调并发控制
+    - 处理封锁检测和重试
+    - 管理检查点的保存和恢复
+    - 收集爬取统计
+
+    【生命周期】
+    1. __init__(): 初始化组件
+    2. crawl(): 执行爬取（主入口）
+    3. _process_request(): 处理单个请求
+    4. _save_checkpoint(): 保存断点
+    """
 
     def __init__(
         self,
@@ -32,6 +79,13 @@ class CrawlerEngine:
         crawldir: Optional[Union[str, Path, AsyncPath]] = None,
         interval: float = 300.0,
     ):
+        """初始化爬虫引擎
+
+        :param spider: Spider 实例
+        :param session_manager: 会话管理器
+        :param crawldir: 检查点目录（启用断点续爬）
+        :param interval: 定期保存检查点的时间间隔（秒）
+        """
         self.spider = spider
         self.session_manager = session_manager
         self.scheduler = Scheduler(
@@ -58,7 +112,7 @@ class CrawlerEngine:
         self.paused: bool = False
 
     def _is_domain_allowed(self, request: Request) -> bool:
-        """Check if the request's domain is in allowed_domains."""
+        """检查请求的域名是否在允许列表中"""
         if not self._allowed_domains:
             return True
 
@@ -69,7 +123,7 @@ class CrawlerEngine:
         return False
 
     def _rate_limiter(self, domain: str) -> CapacityLimiter:
-        """Get or create a per-domain concurrency limiter if enabled, otherwise use the global limiter."""
+        """获取或创建域名级别的并发限制器"""
         if self.spider.concurrent_requests_per_domain:
             if domain not in self._domain_limiters:
                 self._domain_limiters[domain] = CapacityLimiter(self.spider.concurrent_requests_per_domain)
@@ -77,16 +131,21 @@ class CrawlerEngine:
         return self._global_limiter
 
     def _normalize_request(self, request: Request) -> None:
-        """Normalize request fields before enqueueing.
-
-        Resolves empty sid to the session manager's default session ID.
-        This ensures consistent fingerprinting for requests using the same session.
-        """
+        """规范化请求字段，确保会话 ID 一致"""
         if not request.sid:
             request.sid = self.session_manager.default_session_id
 
     async def _process_request(self, request: Request) -> None:
-        """Download and process a single request."""
+        """下载并处理单个请求
+
+        【处理流程】
+        1. 应用并发限制和下载延迟
+        2. 记录代理使用
+        3. 发起请求获取响应
+        4. 检测是否被封锁
+        5. 执行回调处理响应
+        6. 处理回调返回的结果
+        """
         async with self._rate_limiter(request.domain):
             if self.spider.download_delay:
                 await anyio.sleep(self.spider.download_delay)
@@ -111,7 +170,7 @@ class CrawlerEngine:
             if request._retry_count < self.spider.max_blocked_retries:
                 retry_request = request.copy()
                 retry_request._retry_count += 1
-                retry_request.priority -= 1  # Don't retry immediately
+                retry_request.priority -= 1
                 retry_request.dont_filter = True
                 retry_request._session_kwargs.pop("proxy", None)
                 retry_request._session_kwargs.pop("proxies", None)
@@ -156,23 +215,22 @@ class CrawlerEngine:
             await self.spider.on_error(request, e)
 
     async def _task_wrapper(self, request: Request) -> None:
-        """Wrapper to track active task count."""
+        """任务包装器，跟踪活动任务数量"""
         try:
             await self._process_request(request)
         finally:
             self._active_tasks -= 1
 
     def request_pause(self) -> None:
-        """Request a graceful pause of the crawl.
+        """请求优雅暂停
 
-        First call: requests graceful pause (waits for active tasks).
-        Second call: forces immediate stop.
+        第一次调用：请求优雅暂停（等待活动任务完成）
+        第二次调用：强制立即停止
         """
         if self._force_stop:
-            return  # Already forcing stop
+            return
 
         if self._pause_requested:
-            # Second Ctrl+C - force stop
             self._force_stop = True
             log.warning("Force stop requested, cancelling immediately...")
         else:
@@ -182,14 +240,14 @@ class CrawlerEngine:
             )
 
     async def _save_checkpoint(self) -> None:
-        """Save current state to checkpoint files."""
+        """保存当前状态到检查点文件"""
         requests, seen = self.scheduler.snapshot()
         data = CheckpointData(requests=requests, seen=seen)
         await self._checkpoint_manager.save(data)
         self._last_checkpoint_time = anyio.current_time()
 
     def _is_checkpoint_time(self) -> bool:
-        """Check if it's time for the periodic checkpoint."""
+        """检查是否到了定期保存检查点的时间"""
         if not self._checkpoint_system_enabled:
             return False
 
@@ -200,9 +258,9 @@ class CrawlerEngine:
         return (current_time - self._last_checkpoint_time) >= self._checkpoint_manager.interval
 
     async def _restore_from_checkpoint(self) -> bool:
-        """Attempt to restore state from checkpoint.
+        """尝试从检查点恢复状态
 
-        Returns True if successfully restored, False otherwise.
+        :return: 成功恢复返回 True，否则返回 False
         """
         if not self._checkpoint_system_enabled:
             raise
@@ -213,14 +271,21 @@ class CrawlerEngine:
 
         self.scheduler.restore(data)
 
-        # Restore callbacks from spider after scheduler restore
         for request in data.requests:
             request._restore_callback(self.spider)
 
         return True
 
     async def crawl(self) -> CrawlStats:
-        """Run the spider and return CrawlStats."""
+        """运行爬虫并返回统计信息（主入口方法）
+
+        【执行流程】
+        1. 初始化状态和统计
+        2. 尝试从检查点恢复（如果启用）
+        3. 初始化会话
+        4. 处理请求队列直到完成
+        5. 清理并返回统计
+        """
         self._running = True
         self._items.clear()
         self.paused = False
@@ -228,7 +293,6 @@ class CrawlerEngine:
         self._force_stop = False
         self.stats = CrawlStats(start_time=anyio.current_time())
 
-        # Check for existing checkpoint
         resuming = (await self._restore_from_checkpoint()) if self._checkpoint_system_enabled else False
         self._last_checkpoint_time = anyio.current_time()
 
@@ -246,7 +310,6 @@ class CrawlerEngine:
                 else:
                     log.info("Resuming from checkpoint, skipping start_requests()")
 
-                # Process queue
                 async with create_task_group() as tg:
                     while self._running:
                         if self._pause_requested:
@@ -255,7 +318,6 @@ class CrawlerEngine:
                                     log.warning(f"Force stopping with {self._active_tasks} active tasks")
                                     tg.cancel_scope.cancel()
 
-                                # Only save checkpoint if checkpoint system is enabled
                                 if self._checkpoint_system_enabled:
                                     await self._save_checkpoint()
                                     self.paused = True
@@ -266,7 +328,6 @@ class CrawlerEngine:
                                 self._running = False
                                 break
 
-                            # Wait briefly and check again
                             await anyio.sleep(0.05)
                             continue
 
@@ -274,18 +335,14 @@ class CrawlerEngine:
                             await self._save_checkpoint()
 
                         if self.scheduler.is_empty:
-                            # Empty queue + no active tasks = done
                             if self._active_tasks == 0:
                                 self._running = False
                                 log.debug("Spider idle")
                                 break
 
-                            # Brief wait for callbacks to enqueue new requests
                             await anyio.sleep(0.05)
                             continue
 
-                        # Only spawn tasks up to concurrent_requests limit
-                        # This prevents spawning thousands of waiting tasks
                         if self._active_tasks >= self.spider.concurrent_requests:
                             await anyio.sleep(0.01)
                             continue
@@ -296,7 +353,6 @@ class CrawlerEngine:
 
             finally:
                 await self.spider.on_close()
-                # Clean up checkpoint files on successful completion (not paused)
                 if not self.paused and self._checkpoint_system_enabled:
                     await self._checkpoint_manager.cleanup()
 
@@ -307,14 +363,14 @@ class CrawlerEngine:
 
     @property
     def items(self) -> ItemList:
-        """Access scraped items."""
+        """访问已爬取的数据项"""
         return self._items
 
     def __aiter__(self) -> AsyncGenerator[dict, None]:
         return self._stream()
 
     async def _stream(self) -> AsyncGenerator[dict, None]:
-        """Async generator that runs crawl and yields items."""
+        """异步生成器，运行爬取并实时返回数据项"""
         send, recv = create_memory_object_stream[dict](100)
         self._item_stream = send
 

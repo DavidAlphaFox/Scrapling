@@ -1,3 +1,25 @@
+"""
+【模块功能】
+响应转换器，将不同来源的响应转换为统一的Response对象。
+
+【核心类】
+- ResponseFactory: 响应工厂类，提供多种响应转换方法
+
+【核心方法】
+- from_playwright_response: 从同步Playwright响应创建Response
+- from_async_playwright_response: 从异步Playwright响应创建Response
+- from_http_request: 从curl_cffi HTTP响应创建Response
+
+【主要特性】
+- 编码提取：从Content-Type头部自动提取字符编码
+- 重定向历史：处理响应的重定向历史链
+- Windows兼容：处理Playwright在Windows上的兼容性问题
+- 统一格式：将不同库的响应统一为Response对象
+
+【使用场景】
+被所有获取器使用，将底层库的响应转换为Scrapling的Response对象
+"""
+
 from functools import lru_cache
 from re import compile as re_compile
 

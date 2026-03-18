@@ -1,5 +1,21 @@
 """
-Functions related to custom types or type checking
+【模块功能】
+自定义类型和响应类定义，统一不同引擎的响应格式。
+
+【核心类】
+- Response: 统一响应类，继承自Selector，包含HTTP响应信息和解析功能
+- BaseFetcher: 获取器基类，提供解析器配置管理
+- StatusText: HTTP状态码文本映射类
+
+【主要特性】
+- 响应统一：将不同库的响应统一为Response对象
+- 链接跟随：提供follow()方法方便爬虫跟随链接
+- 状态码映射：提供HTTP状态码到文本描述的映射
+- 解析器配置：支持全局配置解析器参数
+
+【使用场景】
+被所有获取器（Fetcher、DynamicFetcher、StealthyFetcher）使用，
+作为返回的响应类型。
 """
 
 from functools import lru_cache

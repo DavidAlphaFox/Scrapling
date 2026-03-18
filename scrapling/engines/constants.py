@@ -1,3 +1,18 @@
+"""
+【模块功能】
+浏览器引擎常量定义，包含资源过滤、启动参数等配置。
+
+【核心常量】
+- EXTRA_RESOURCES: 需要禁用的额外资源类型集合（字体、图片、媒体等）
+- HARMFUL_ARGS: 有害的浏览器启动参数，会被自动过滤
+- DEFAULT_ARGS: 默认的浏览器启动参数，优化性能和稳定性
+- STEALTH_ARGS: 隐身模式的浏览器启动参数，用于绕过检测
+
+【使用场景】
+这些常量被浏览器获取器（DynamicFetcher、StealthyFetcher）使用，
+用于配置Playwright浏览器的启动参数和资源拦截规则。
+"""
+
 # Disable loading these resources for speed
 EXTRA_RESOURCES = {
     "font",

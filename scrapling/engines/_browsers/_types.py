@@ -1,3 +1,21 @@
+"""
+【模块功能】
+浏览器引擎类型定义，提供类型提示和TypedDict定义。
+
+【核心类型】
+- ImpersonateType: 浏览器模拟类型别名
+- RequestsSession: HTTP请求会话参数类型
+- GetRequestParams: GET请求参数类型
+- DataRequestParams: POST/PUT/DELETE请求参数类型
+- PlaywrightSession: Playwright浏览器会话参数类型
+- PlaywrightFetchParams: Playwright获取参数类型
+- StealthSession: 隐身会话参数类型
+- StealthFetchParams: 隐身获取参数类型
+
+【使用场景】
+为浏览器获取器和HTTP获取器提供类型检查支持。
+"""
+
 from io import BytesIO
 
 from curl_cffi.requests import (

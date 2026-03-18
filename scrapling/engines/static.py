@@ -1,3 +1,26 @@
+"""
+【模块功能】
+HTTP请求会话引擎，基于curl_cffi实现高性能HTTP请求。
+
+【核心类】
+- _ConfigurationLogic: 配置逻辑基类，处理请求参数合并和头部生成
+- _SyncSessionLogic: 同步会话逻辑，支持同步HTTP请求
+- _ASyncSessionLogic: 异步会话逻辑，支持异步HTTP请求
+- FetcherSession: 会话工厂类，提供同步/异步上下文管理
+- FetcherClient: 同步客户端类，用于一次性请求
+- AsyncFetcherClient: 异步客户端类，用于一次性异步请求
+
+【主要特性】
+- 浏览器指纹模拟：通过curl_cffi模拟真实浏览器的TLS指纹
+- 代理轮换：支持自动代理轮换和重试机制
+- 隐身头部：自动生成真实浏览器头部和Google Referer
+- HTTP/3支持：可选启用HTTP/3协议
+- 自动重试：请求失败时自动重试，支持代理错误检测
+
+【依赖说明】
+依赖curl_cffi库实现HTTP请求功能
+"""
+
 from abc import ABC
 from random import choice
 from time import sleep as time_sleep

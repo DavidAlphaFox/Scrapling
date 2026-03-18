@@ -1,5 +1,20 @@
 """
-Functions related to generating headers and fingerprints generally
+【模块功能】
+浏览器指纹和头部生成，用于创建真实浏览器特征。
+
+【核心函数】
+- get_os_name: 获取当前操作系统名称
+- generate_headers: 生成真实浏览器头部
+
+【主要特性】
+- 真实头部：使用browserforge生成真实浏览器头部
+- 系统匹配：根据当前操作系统生成匹配的头部
+- 浏览器模式：支持为Playwright浏览器生成匹配的头部
+
+【常量定义】
+- chromium_version: Chromium版本号
+- chrome_version: Chrome版本号
+- __default_useragent__: 默认User-Agent字符串
 """
 
 from functools import lru_cache

@@ -1,3 +1,37 @@
+"""
+================================================================================
+Scrapling 请求对象模块 (Request Object Module)
+================================================================================
+
+【模块功能】
+定义爬虫框架中的请求对象，用于封装 URL、回调、优先级等信息。
+
+【核心类】
+- Request: 请求对象，封装爬取请求的所有信息
+
+【主要特性】
+1. 指纹生成：基于 URL、方法、请求体等生成唯一指纹
+2. 回调支持：支持自定义回调函数处理响应
+3. 优先级：支持请求优先级排序
+4. 元数据：通过 meta 字典传递自定义数据
+5. 序列化：支持 pickle 序列化（用于检查点）
+
+【使用示例】
+>>> from scrapling.spiders import Request
+>>>
+>>> # 基本请求
+>>> request = Request('https://example.com')
+>>>
+>>> # 带回调和优先级
+>>> request = Request(
+...     'https://example.com/product',
+...     callback=self.parse_product,
+...     priority=10,
+...     meta={'category': 'electronics'}
+... )
+================================================================================
+"""
+
 import hashlib
 from io import BytesIO
 from functools import cached_property
@@ -14,6 +48,7 @@ if TYPE_CHECKING:
 
 
 def _convert_to_bytes(value: str | bytes) -> bytes:
+    """将字符串或字节转换为字节"""
     if isinstance(value, bytes):
         return value
     if not isinstance(value, str):
@@ -23,6 +58,25 @@ def _convert_to_bytes(value: str | bytes) -> bytes:
 
 
 class Request:
+    """请求对象 - 封装爬取请求的所有信息
+
+    【功能说明】
+    表示一个待处理的爬取请求，包含 URL、会话 ID、回调函数、
+    优先级、元数据和会话参数等信息。
+
+    【主要属性】
+    - url: 请求的 URL
+    - sid: 会话 ID（指定使用哪个获取器）
+    - callback: 响应处理回调函数
+    - priority: 优先级（越高越先处理）
+    - dont_filter: 是否跳过去重
+    - meta: 自定义元数据字典
+
+    【指纹机制】
+    通过 update_fingerprint() 方法生成请求的唯一标识，
+    用于去重。指纹基于 URL、方法、请求体等计算。
+    """
+
     def __init__(
         self,
         url: str,
@@ -34,6 +88,17 @@ class Request:
         _retry_count: int = 0,
         **kwargs: Any,
     ) -> None:
+        """初始化请求对象
+
+        :param url: 请求的 URL
+        :param sid: 会话 ID，指定使用哪个获取器会话
+        :param callback: 响应处理回调函数，接收 Response，返回生成器
+        :param priority: 优先级，数值越高越先处理
+        :param dont_filter: True 表示跳过 URL 去重
+        :param meta: 自定义元数据，会传递给 Response
+        :param _retry_count: 内部使用，重试计数
+        :param kwargs: 额外的会话参数（如 headers、proxy、data 等）
+        """
         self.url: str = url
         self.sid: str = sid
         self.callback = callback
@@ -45,7 +110,7 @@ class Request:
         self._fp: Optional[bytes] = None
 
     def copy(self) -> "Request":
-        """Create a copy of this request."""
+        """创建请求的副本"""
         return Request(
             url=self.url,
             sid=self.sid,
@@ -59,6 +124,7 @@ class Request:
 
     @cached_property
     def domain(self) -> str:
+        """请求的域名"""
         return urlparse(self.url).netloc
 
     def update_fingerprint(
@@ -67,9 +133,16 @@ class Request:
         include_headers: bool = False,
         keep_fragments: bool = False,
     ) -> bytes:
-        """Generate a unique fingerprint for deduplication.
+        """生成请求指纹用于去重
 
-        Caches the result in self._fp after first computation.
+        【功能说明】
+        基于 URL、方法、请求体等信息计算 SHA1 哈希作为唯一标识。
+        结果会被缓存，后续调用直接返回缓存值。
+
+        :param include_kwargs: 是否包含会话参数
+        :param include_headers: 是否包含请求头
+        :param keep_fragments: URL 是否保留片段
+        :return: 20 字节的指纹
         """
         if self._fp is not None:
             return self._fp
@@ -103,7 +176,6 @@ class Request:
         if include_headers:
             headers = self._session_kwargs.get("headers") or self._session_kwargs.get("extra_headers") or {}
             processed_headers = {}
-            # Some header normalization
             for key, value in headers.items():
                 processed_headers[_convert_to_bytes(key.lower()).hex()] = _convert_to_bytes(value.lower()).hex()
             data["headers"] = tuple(processed_headers.items())
@@ -120,19 +192,19 @@ class Request:
         return self.url
 
     def __lt__(self, other: object) -> bool:
-        """Compare requests by priority"""
+        """比较运算符 - 按优先级比较"""
         if not isinstance(other, Request):
             return NotImplemented
         return self.priority < other.priority
 
     def __gt__(self, other: object) -> bool:
-        """Compare requests by priority"""
+        """比较运算符 - 按优先级比较"""
         if not isinstance(other, Request):
             return NotImplemented
         return self.priority > other.priority
 
     def __eq__(self, other: object) -> bool:
-        """Requests are equal if they have the same fingerprint."""
+        """相等比较 - 基于指纹"""
         if not isinstance(other, Request):
             return NotImplemented
         if self._fp is None or other._fp is None:
@@ -140,21 +212,21 @@ class Request:
         return self._fp == other._fp
 
     def __getstate__(self) -> dict[str, Any]:
-        """Prepare state for pickling - store callback as name string for pickle compatibility."""
+        """准备 pickle 状态 - 回调函数转为名称字符串"""
         state = self.__dict__.copy()
         state["_callback_name"] = getattr(self.callback, "__name__", None) if self.callback is not None else None
-        state["callback"] = None  # Don't pickle the actual callable
+        state["callback"] = None
         return state
 
     def __setstate__(self, state: dict[str, Any]) -> None:
-        """Restore state from pickle - callback restored later via _restore_callback()."""
+        """从 pickle 恢复状态"""
         self._callback_name: str | None = state.pop("_callback_name", None)
         self.__dict__.update(state)
 
     def _restore_callback(self, spider: "Spider") -> None:
-        """Restore callback from spider after unpickling.
+        """从 Spider 恢复回调函数（pickle 后）
 
-        :param spider: Spider instance to look up callback method on
+        :param spider: Spider 实例，用于查找回调方法
         """
         if hasattr(self, "_callback_name") and self._callback_name:
             self.callback = getattr(spider, self._callback_name, None) or spider.parse

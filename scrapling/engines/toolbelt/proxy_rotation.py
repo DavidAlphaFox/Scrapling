@@ -1,3 +1,24 @@
+"""
+【模块功能】
+代理轮换系统，提供线程安全的代理轮换功能。
+
+【核心类】
+- ProxyRotator: 线程安全的代理轮换器
+
+【核心函数】
+- is_proxy_error: 检测错误是否为代理相关错误
+- cyclic_rotation: 循环轮换策略（默认策略）
+
+【主要特性】
+- 线程安全：使用锁保证多线程环境下的安全性
+- 可插拔策略：支持自定义轮换策略
+- 多格式支持：支持字符串URL和Playwright风格的字典代理
+
+【使用示例】
+rotator = ProxyRotator(["http://proxy1:8080", "http://proxy2:8080"])
+proxy = rotator.get_proxy()  # 获取下一个代理
+"""
+
 from threading import Lock
 
 from scrapling.core._types import Callable, Dict, List, Tuple, ProxyType

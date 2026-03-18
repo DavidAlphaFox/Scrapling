@@ -1,3 +1,25 @@
+"""
+【模块功能】
+浏览器会话基类，提供同步和异步浏览器会话的核心功能。
+
+【核心类】
+- SyncSession: 同步浏览器会话基类
+- AsyncSession: 异步浏览器会话基类
+- BaseSessionMixin: 会话配置混入基类
+- DynamicSessionMixin: 动态获取器会话混入
+- StealthySessionMixin: 隐身获取器会话混入
+
+【主要特性】
+- 页面池管理：支持多标签页并发管理
+- 代理轮换：支持代理轮换模式
+- 资源拦截：支持禁用不必要的资源加载
+- 域名屏蔽：支持屏蔽特定域名的请求
+- Cloudflare检测：支持检测Cloudflare挑战类型
+
+【依赖说明】
+依赖Playwright库实现浏览器自动化功能
+"""
+
 from time import time
 from asyncio import sleep as asyncio_sleep, Lock
 from contextlib import contextmanager, asynccontextmanager

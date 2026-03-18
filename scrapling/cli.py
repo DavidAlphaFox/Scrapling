@@ -1,3 +1,34 @@
+"""
+【模块功能】
+命令行接口，提供Scrapling的CLI命令和交互式Shell。
+
+【核心命令】
+- install: 安装Scrapling的Fetchers依赖和浏览器
+- shell: 启动交互式Web Scraping Shell
+- extract: 从URL提取内容并保存到文件
+- mcp: 启动MCP服务器用于AI集成
+
+【extract子命令】
+- get: 执行GET请求
+- post: 执行POST请求
+- put: 执行PUT请求
+- delete: 执行DELETE请求
+- fetch: 使用DynamicFetcher获取内容
+- stealthy-fetch: 使用StealthyFetcher获取内容
+
+【主要特性】
+- 多种输出格式：支持HTML、Markdown、纯文本输出
+- CSS选择器：支持使用CSS选择器提取特定内容
+- 代理支持：支持代理配置
+- 浏览器模拟：支持浏览器指纹模拟
+- Cloudflare绕过：stealthy-fetch支持解决Cloudflare验证码
+
+【使用示例】
+scrapling shell
+scrapling extract get 'https://example.com' content.md
+scrapling extract stealthy-fetch 'https://example.com' content.html --solve-cloudflare
+"""
+
 from pathlib import Path
 from subprocess import check_output
 from sys import executable as python_executable

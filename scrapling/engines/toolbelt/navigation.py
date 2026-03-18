@@ -1,5 +1,19 @@
 """
-Functions related to files and URLs
+【模块功能】
+导航和网络请求处理工具，提供代理构建和请求拦截功能。
+
+【核心函数】
+- construct_proxy_dict: 构建Playwright格式的代理字典
+- create_intercept_handler: 创建同步请求拦截处理器
+- create_async_intercept_handler: 创建异步请求拦截处理器
+
+【核心类】
+- ProxyDict: 代理配置结构体
+
+【主要特性】
+- 代理格式转换：支持字符串、字典、元组格式的代理转换为Playwright格式
+- 资源拦截：支持禁用字体、图片、媒体等资源类型
+- 域名屏蔽：支持屏蔽指定域名及其子域名的请求
 """
 
 from urllib.parse import urlparse

@@ -1,3 +1,27 @@
+"""
+【模块功能】
+配置验证器，使用msgspec进行高性能参数验证。
+
+【核心类】
+- PlaywrightConfig: Playwright配置结构体
+- StealthConfig: 隐身模式配置结构体（继承自PlaywrightConfig）
+- _fetch_params: fetch方法参数数据类
+
+【核心函数】
+- validate: 验证参数并返回配置对象
+- validate_fetch: 验证fetch调用参数
+- _filter_defaults: 过滤默认值以减少验证开销
+
+【主要特性】
+- 类型验证：使用msgspec进行快速类型检查
+- 自定义验证器：文件路径、CDP URL等自定义验证
+- 默认值过滤：过滤掉默认值以提高性能
+- 代理验证：自动验证和转换代理格式
+
+【依赖说明】
+依赖msgspec库实现高性能结构化数据验证
+"""
+
 from pathlib import Path
 from typing import Annotated
 from functools import lru_cache

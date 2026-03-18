@@ -1,3 +1,50 @@
+"""
+================================================================================
+Scrapling 解析器模块 (Parser Module)
+================================================================================
+
+【模块功能】
+本模块是 Scrapling 的核心解析引擎，提供高性能的 HTML 解析和元素选择功能。
+
+主要特性:
+1. 多种选择器支持: CSS3、XPath、文本搜索、正则表达式
+2. 自适应元素追踪: 当网站结构变化时自动重新定位元素
+3. DOM 导航: 父子兄弟元素遍历、路径追踪
+4. 相似元素查找: 基于结构相似度查找同类元素
+5. 高性能解析: 基于 lxml 的快速解析，预编译 XPath 表达式
+
+【核心类】
+- Selector: 单个 HTML 元素的包装类，提供丰富的选择和导航方法
+- Selectors: Selector 的列表容器，支持链式调用和批量操作
+
+【使用示例】
+>>> from scrapling.parser import Selector
+>>>
+>>> # 从 HTML 字符串创建选择器
+>>> page = Selector("<html><body><div class='item'>Hello</div></body></html>")
+>>>
+>>> # CSS 选择器
+>>> items = page.css('.item')
+>>> print(items[0].text)  # 输出: Hello
+>>>
+>>> # XPath 选择器
+>>> items = page.xpath('//div[@class="item"]')
+>>>
+>>> # 自适应模式 (网站结构变化时自动重定位)
+>>> page = Selector(html_content, adaptive=True)
+>>> items = page.css('.product', auto_save=True)  # 首次保存元素特征
+>>> # 之后网站改版，选择器失效时
+>>> items = page.css('.product', adaptive=True)  # 自动根据特征重新定位
+
+【设计说明】
+- 不直接继承 lxml.html.HtmlElement，因为它不支持 pickle 序列化
+- 使用 __slots__ 优化内存使用
+- 属性懒加载 (text, attrib, tag) 提升初始化性能
+- 支持与 Scrapy/Parsel 相同的伪元素语法 (::text, ::attr())
+
+================================================================================
+"""
+
 from pathlib import Path
 from inspect import signature
 from urllib.parse import urljoin
@@ -62,6 +109,26 @@ _find_all_text_nodes = XPath(".//text()")
 
 
 class Selector(SelectorsGeneration):
+    """
+    HTML 元素选择器类 - Scrapling 的核心类
+
+    【类功能】
+    封装 HTML 内容，提供丰富的元素选择和导航功能。
+    不直接继承 lxml.html.HtmlElement（因为不可 pickle），
+    而是使用组合模式包装 lxml 元素。
+
+    【主要能力】
+    1. 元素选择: css(), xpath(), find_all(), find_by_text(), find_by_regex()
+    2. 自适应追踪: 网站结构变化时自动重新定位元素
+    3. DOM 导航: parent, children, siblings, next, previous
+    4. 文本处理: text, get_all_text(), re(), re_first()
+    5. 相似查找: find_similar() 查找结构相似的元素
+
+    【使用方式】
+    - 从 HTML 字符串创建: Selector("<html>...</html>")
+    - 从 Fetcher 获取: Fetcher.get('url') 返回 Selector
+    """
+
     __slots__ = (
         "url",
         "encoding",
@@ -569,22 +636,26 @@ class Selector(SelectorsGeneration):
         auto_save: bool = False,
         percentage: int = 0,
     ) -> "Selectors":
-        """Search the current tree with CSS3 selectors
+        """使用 CSS3 选择器搜索当前元素树
 
-        **Important:
-        It's recommended to use the identifier argument if you plan to use a different selector later
-        and want to relocate the same element(s)**
+        【功能说明】
+        将 CSS 选择器转换为 XPath 后执行查询，返回匹配的元素列表。
+        支持所有标准 CSS3 选择器语法。
 
-        :param selector: The CSS3 selector to be used.
-        :param adaptive: Enabled will make the function try to relocate the element if it was 'saved' before
-        :param identifier: A string that will be used to save/retrieve element's data in adaptive,
-         otherwise the selector will be used.
-        :param auto_save: Automatically save new elements for `adaptive` later
-        :param percentage: The minimum percentage to accept while `adaptive` is working and not going lower than that.
-         Be aware that the percentage calculation depends solely on the page structure, so don't play with this
-         number unless you must know what you are doing!
+        【自适应模式】
+        当 adaptive=True 时，如果原选择器不再匹配任何元素，
+        会尝试根据之前保存的元素特征在页面中重新定位。
 
-        :return: `Selectors` class.
+        【重要提示】
+        如果计划之后使用不同的选择器但想定位同一元素，建议使用 identifier 参数。
+
+        :param selector: CSS3 选择器字符串
+        :param adaptive: 启用自适应模式，尝试重新定位已保存的元素
+        :param identifier: 用于保存/检索元素数据的标识符，默认使用选择器本身
+        :param auto_save: 自动保存新找到的元素特征，供后续 adaptive 使用
+        :param percentage: 自适应模式下的最低匹配百分比阈值 (0-100)
+
+        :return: `Selectors` 对象，包含所有匹配的元素
         """
         if self._is_text_node(self._root):
             return Selectors()
@@ -630,24 +701,28 @@ class Selector(SelectorsGeneration):
         percentage: int = 0,
         **kwargs: Any,
     ) -> "Selectors":
-        """Search the current tree with XPath selectors
+        """使用 XPath 选择器搜索当前元素树
 
-        **Important:
-        It's recommended to use the identifier argument if you plan to use a different selector later
-        and want to relocate the same element(s)**
+        【功能说明】
+        执行 XPath 表达式，返回匹配的元素列表。
+        这是底层选择方法，css() 方法内部会转换为 xpath() 执行。
 
-         Note: **Additional keyword arguments will be passed as XPath variables in the XPath expression!**
+        【重要提示】
+        如果计划之后使用不同的选择器但想定位同一元素，建议使用 identifier 参数。
+        额外的关键字参数会作为 XPath 变量传递给表达式！
 
-        :param selector: The XPath selector to be used.
-        :param adaptive: Enabled will make the function try to relocate the element if it was 'saved' before
-        :param identifier: A string that will be used to save/retrieve element's data in adaptive,
-         otherwise the selector will be used.
-        :param auto_save: Automatically save new elements for `adaptive` later
-        :param percentage: The minimum percentage to accept while `adaptive` is working and not going lower than that.
-         Be aware that the percentage calculation depends solely on the page structure, so don't play with this
-         number unless you must know what you are doing!
+        【自适应模式】
+        当 adaptive=True 且启用全局 adaptive 时，如果原选择器找不到元素，
+        会尝试从存储中检索之前保存的元素特征，并在页面中重新定位。
 
-        :return: `Selectors` class.
+        :param selector: XPath 选择器字符串
+        :param identifier: 用于保存/检索元素特征的标识符，默认使用选择器本身
+        :param adaptive: 启用自适应模式，尝试重新定位已保存的元素
+        :param auto_save: 自动保存新元素的元素特征，供后续 adaptive 使用
+        :param percentage: 自适应模式下的最低匹配百分比阈值 (0-100)
+        :param kwargs: 额外的 XPath 变量，可在表达式中通过 $var 引用
+
+        :return: `Selectors` 对象，包含所有匹配的元素
         """
         if self._is_text_node(self._root):
             return Selectors()
@@ -696,11 +771,24 @@ class Selector(SelectorsGeneration):
         *args: str | Iterable[str] | Pattern | Callable | Dict[str, str],
         **kwargs: str,
     ) -> "Selectors":
-        """Find elements by filters of your creations for ease.
+        """通过多种过滤器查找元素（类似 BeautifulSoup 风格）
 
-        :param args: Tag name(s), iterable of tag names, regex patterns, function, or a dictionary of elements' attributes. Leave empty for selecting all.
-        :param kwargs: The attributes you want to filter elements based on it.
-        :return: The `Selectors` object of the elements or empty list
+        【功能说明】
+        提供灵活的元素查找方式，支持多种参数类型的组合：
+        - 标签名: find_all('div'), find_all(['div', 'span'])
+        - 属性: find_all(href='/link'), find_all(class_='item')
+        - 正则: find_all(re.compile(r'item-\\d+'))
+        - 函数: find_all(lambda e: e.attrib.get('data-id'))
+        - 字典: find_all({'class': 'item', 'data-type': 'product'})
+
+        【使用示例】
+        >>> page.find_all('div', class_='product')  # 查找所有 class='product' 的 div
+        >>> page.find_all('a', href=re.compile(r'/p/'))  # 查找 href 包含 /p/ 的链接
+        >>> page.find_all(lambda e: 'price' in e.attrib)  # 查找有 price 属性的元素
+
+        :param args: 标签名(字符串或可迭代对象)、正则表达式、过滤函数或属性字典
+        :param kwargs: 属性名=值 形式的属性过滤条件（class_ 代替 class）
+        :return: `Selectors` 对象，包含所有匹配的元素
         """
         if self._is_text_node(self._root):
             return Selectors()
@@ -1015,25 +1103,32 @@ class Selector(SelectorsGeneration):
         ),
         match_text: bool = False,
     ) -> "Selectors":
-        """Find elements that are in the same tree depth in the page with the same tag name and same parent tag etc...
-        then return the ones that match the current element attributes with a percentage higher than the input threshold.
+        """查找与当前元素结构相似的其他元素
 
-        This function is inspired by AutoScraper and made for cases where you, for example, found a product div inside
-        a products-list container and want to find other products using that element as a starting point EXCEPT
-        this function works in any case without depending on the element type.
+        【功能说明】
+        在页面中查找具有相同树深度、相同标签名、相同父/祖父标签名的元素，
+        然后返回属性匹配度超过阈值的元素。
 
-        :param similarity_threshold: The percentage to use while comparing element attributes.
-            Note: Elements found before attributes matching/comparison will be sharing the same depth, same tag name,
-            same parent tag name, and same grand parent tag name. So they are 99% likely to be correct unless you are
-            extremely unlucky, then attributes matching comes into play, so don't play with this number unless
-            you are getting the results you don't want.
-            Also, if the current element doesn't have attributes and the similar element as well, then it's a 100% match.
-        :param ignore_attributes: Attribute names passed will be ignored while matching the attributes in the last step.
-            The default value is to ignore `href` and `src` as URLs can change a lot between elements, so it's unreliable
-        :param match_text: If True, element text content will be taken into calculation while matching.
-            Not recommended to use in normal cases, but it depends.
+        【使用场景】
+        灵感来自 AutoScraper。适用于：找到一个产品 div 后，自动查找其他产品。
+        与 AutoScraper 不同，此方法不依赖元素类型，通用性更强。
 
-        :return: A ``Selectors`` container of ``Selector`` objects or empty list
+        【工作原理】
+        1. 获取当前元素的深度、标签名、父标签名、祖父标签名
+        2. 使用 XPath 查找所有符合结构条件的候选元素
+        3. 对每个候选元素计算属性相似度
+        4. 返回相似度超过阈值的元素
+
+        :param similarity_threshold: 属性匹配的最低百分比阈值 (0-1)
+            - 结构相同的候选元素 99% 是正确的
+            - 如果两个元素都没有属性，视为 100% 匹配
+            - 默认 0.2，除非结果不理想否则不建议修改
+        :param ignore_attributes: 匹配时忽略的属性名列表
+            - 默认忽略 href 和 src，因为 URL 通常会变化
+        :param match_text: 是否将文本内容纳入匹配计算
+            - 通常不建议开启，除非特定场景需要
+
+        :return: `Selectors` 对象，包含所有相似的元素
         """
         if self._is_text_node(self._root):
             return Selectors()
@@ -1195,7 +1290,18 @@ class Selector(SelectorsGeneration):
 
 class Selectors(List[Selector]):
     """
-    The `Selectors` class is a subclass of the builtin ``List`` class, which provides a few additional methods.
+    Selector 列表容器类 - 扩展 Python 内置 List 类
+
+    【类功能】
+    用于存储多个 Selector 对象的容器，支持链式调用和批量操作。
+
+    【主要方法】
+    - xpath()/css(): 对列表中每个元素执行选择器，合并结果
+    - re()/re_first(): 对每个元素执行正则匹配
+    - filter(): 根据函数过滤元素
+    - search(): 查找第一个匹配的元素
+    - get()/getall(): 获取序列化后的文本内容
+    - first/last: 获取第一个/最后一个元素
     """
 
     __slots__ = ()

@@ -1,3 +1,53 @@
+"""
+================================================================================
+Scrapling Spider 爬虫基类模块 (Spider Base Class Module)
+================================================================================
+
+【模块功能】
+提供类似 Scrapy 的爬虫框架基类，支持并发爬取、多会话、暂停/恢复等功能。
+
+【核心类】
+- Spider: 爬虫抽象基类，用户继承此类定义自己的爬虫
+- SessionConfigurationError: 会话配置错误异常
+- LogCounterHandler: 日志计数处理器
+
+【主要特性】
+1. Scrapy-like API: 熟悉的 start_urls + parse 模式
+2. 并发控制: 可配置的并发请求数和每域名并发限制
+3. 多会话支持: 在同一爬虫中使用不同类型的获取器
+4. 断点续爬: 通过 crawldir 启用检查点，支持暂停/恢复
+5. 流式输出: 通过 stream() 方法实时获取爬取结果
+
+【使用示例】
+>>> from scrapling.spiders import Spider, Request, Response
+>>>
+>>> class MySpider(Spider):
+...     name = "my_spider"
+...     start_urls = ["https://example.com/"]
+...     concurrent_requests = 10
+...
+...     async def parse(self, response: Response):
+...         for item in response.css('.product'):
+...             yield {"title": item.css('h2::text').get()}
+...
+...         next_page = response.css('.next a::attr(href)').get()
+...         if next_page:
+...             yield response.follow(next_page)
+>>>
+>>> result = MySpider().start()
+>>> print(f"Scraped {len(result.items)} items")
+
+【生命周期方法】
+- start_requests(): 生成初始请求
+- parse(response): 处理响应（必须实现）
+- on_start(resuming): 爬取开始前调用
+- on_close(): 爬取结束后调用
+- on_error(request, error): 请求出错时调用
+- on_scraped_item(item): 处理爬取的数据项
+- is_blocked(response): 判断是否被封锁
+================================================================================
+"""
+
 import signal
 import logging
 from pathlib import Path
@@ -19,7 +69,19 @@ if TYPE_CHECKING:
 
 
 class LogCounterHandler(logging.Handler):
-    """A logging handler that counts log messages by level."""
+    """日志计数处理器 - 统计各级别日志消息数量
+
+    【功能说明】
+    继承自 logging.Handler，用于统计爬虫运行过程中
+    产生的各级别日志消息数量，最终汇入爬取统计。
+
+    【统计的日志级别】
+    - DEBUG: 调试信息
+    - INFO: 一般信息
+    - WARNING: 警告信息
+    - ERROR: 错误信息
+    - CRITICAL: 严重错误
+    """
 
     def __init__(self):
         super().__init__()
@@ -32,8 +94,8 @@ class LogCounterHandler(logging.Handler):
         }
 
     def emit(self, record: logging.LogRecord) -> None:
+        """处理日志记录，增加对应级别的计数"""
         level = record.levelno
-        # Map to the closest standard level
         if level >= logging.CRITICAL:
             self.counts[logging.CRITICAL] += 1
         elif level >= logging.ERROR:
@@ -46,7 +108,7 @@ class LogCounterHandler(logging.Handler):
             self.counts[logging.DEBUG] += 1
 
     def get_counts(self) -> Dict[str, int]:
-        """Return counts as a dictionary with string keys."""
+        """返回字符串键的计数字典"""
         return {
             "debug": self.counts[logging.DEBUG],
             "info": self.counts[logging.INFO],
@@ -57,43 +119,67 @@ class LogCounterHandler(logging.Handler):
 
 
 class SessionConfigurationError(Exception):
-    """Raised when session configuration fails."""
+    """会话配置错误异常
+
+    当 configure_sessions() 方法配置失败时抛出。
+    """
 
     pass
 
 
 class Spider(ABC):
-    """An abstract base class for creating web spiders.
+    """爬虫抽象基类 - 所有爬虫必须继承此类
 
-    Check the documentation website for more information.
+    【功能说明】
+    提供完整的爬虫框架，包括请求调度、并发控制、
+    会话管理、断点续爬等功能。
+
+    【必须实现】
+    - name: 爬虫名称
+    - parse(response): 响应处理方法
+
+    【可选重写】
+    - start_requests(): 自定义初始请求
+    - configure_sessions(): 配置多个会话
+    - on_start(): 爬取开始钩子
+    - on_close(): 爬取结束钩子
+    - on_error(): 错误处理钩子
+    - is_blocked(): 封锁检测
+    - retry_blocked_request(): 重试准备
+
+    【类属性】
+    - name: 爬虫名称（必须设置）
+    - start_urls: 起始 URL 列表
+    - allowed_domains: 允许的域名集合
+    - concurrent_requests: 全局并发请求数
+    - concurrent_requests_per_domain: 每域名并发数
+    - download_delay: 下载延迟（秒）
+    - max_blocked_retries: 被封锁后的最大重试次数
     """
 
     name: Optional[str] = None
     start_urls: list[str] = []
     allowed_domains: Set[str] = set()
 
-    # Concurrency settings
     concurrent_requests: int = 4
     concurrent_requests_per_domain: int = 0
     download_delay: float = 0.0
     max_blocked_retries: int = 3
 
-    # Fingerprint adjustments
     fp_include_kwargs: bool = False
     fp_keep_fragments: bool = False
     fp_include_headers: bool = False
 
-    # Logging settings
     logging_level: int = logging.DEBUG
     logging_format: str = "[%(asctime)s]:({spider_name}) %(levelname)s: %(message)s"
     logging_date_format: str = "%Y-%m-%d %H:%M:%S"
     log_file: Optional[str] = None
 
     def __init__(self, crawldir: Optional[Union[str, Path, AsyncPath]] = None, interval: float = 300.0):
-        """Initialize the spider.
+        """初始化爬虫
 
-        :param crawldir: Directory for checkpoint files. If provided, enables pause/resume.
-        :param interval: Seconds between periodic checkpoint saves (default 5 minutes).
+        :param crawldir: 检查点目录路径，设置后启用断点续爬功能
+        :param interval: 定期保存检查点的时间间隔（秒），默认 5 分钟
         """
         if self.name is None:
             raise ValueError(f"{self.__class__.__name__} must have a name.")
@@ -101,13 +187,12 @@ class Spider(ABC):
         self.logger = logging.getLogger(f"scrapling.spiders.{self.name}")
         self.logger.setLevel(self.logging_level)
         self.logger.handlers.clear()
-        self.logger.propagate = False  # Don't propagate to parent 'scrapling' logger
+        self.logger.propagate = False
 
         formatter = logging.Formatter(
             fmt=self.logging_format.format(spider_name=self.name), datefmt=self.logging_date_format
         )
 
-        # Add a log counter handler to track log counts by level
         self._log_counter = LogCounterHandler()
         self.logger.addHandler(self._log_counter)
 
@@ -139,13 +224,16 @@ class Spider(ABC):
         self.logger.info("Spider initialized")
 
     async def start_requests(self) -> AsyncGenerator[Request, None]:
-        """Generate initial requests to start the crawl.
+        """生成初始请求
 
-        By default, this generates Request objects for each URL in `start_urls`
-        using the session manager's default session and `parse()` as callback.
+        【功能说明】
+        默认为 start_urls 中的每个 URL 创建一个 Request 对象，
+        使用默认会话和 parse() 作为回调。
 
-        Override this method for more control over initial requests
-        (e.g., to add custom headers, use different callbacks, etc.)
+        【重写场景】
+        - 需要添加自定义请求头
+        - 需要使用不同的回调函数
+        - 需要动态生成起始 URL
         """
         if not self.start_urls:
             raise RuntimeError(
@@ -157,14 +245,23 @@ class Spider(ABC):
 
     @abstractmethod
     async def parse(self, response: "Response") -> AsyncGenerator[Dict[str, Any] | Request | None, None]:
-        """Default callback for processing responses"""
+        """处理响应的回调方法（必须实现）
+
+        【功能说明】
+        处理每个响应，可以 yield：
+        - dict: 爬取的数据项
+        - Request: 新的请求
+        - None: 不产生任何结果
+
+        :param response: 响应对象，包含页面内容和选择器
+        """
         raise NotImplementedError(f"{self.__class__.__name__} must implement parse() method")
-        yield  # Make this a generator for type checkers
+        yield
 
     async def on_start(self, resuming: bool = False) -> None:
-        """Called before crawling starts. Override for setup logic.
+        """爬取开始前的钩子方法
 
-        :param resuming: It's enabled if the spider is resuming from a checkpoint, left for the user to use.
+        :param resuming: True 表示从检查点恢复，False 表示全新开始
         """
         if resuming:
             self.logger.debug("Resuming spider from checkpoint")
@@ -172,64 +269,91 @@ class Spider(ABC):
             self.logger.debug("Starting spider")
 
     async def on_close(self) -> None:
-        """Called after crawling finishes. Override for cleanup logic."""
+        """爬取结束后的钩子方法，用于清理资源"""
         self.logger.debug("Spider closed")
 
     async def on_error(self, request: Request, error: Exception) -> None:
-        """
-        Handle request errors for all spider requests.
+        """请求出错时的钩子方法
 
-        Override for custom error handling.
+        :param request: 出错的请求对象
+        :param error: 捕获的异常
         """
         pass
 
     async def on_scraped_item(self, item: Dict[str, Any]) -> Dict[str, Any] | None:
-        """A hook to be overridden by users to do some processing on scraped items, return `None` to drop the item silently."""
+        """处理爬取数据项的钩子方法
+
+        【功能说明】
+        对每个爬取的数据项进行后处理。
+        返回 None 可以静默丢弃该数据项。
+
+        :param item: 爬取的数据字典
+        :return: 处理后的数据字典，或 None 丢弃
+        """
         return item
 
     async def is_blocked(self, response: "Response") -> bool:
-        """Check if the response is blocked. Users should override this for custom detection logic."""
+        """判断响应是否被封锁
+
+        【功能说明】
+        默认通过 HTTP 状态码判断（401, 403, 407, 429, 444, 500, 502, 503, 504）。
+        可重写以实现自定义检测逻辑。
+
+        :param response: 响应对象
+        :return: True 表示被封锁
+        """
         if response.status in BLOCKED_CODES:
             return True
         return False
 
     async def retry_blocked_request(self, request: Request, response: "Response") -> Request:
-        """Users should override this to prepare the blocked request before retrying, if needed."""
+        """准备被封锁请求的重试
+
+        【功能说明】
+        在请求被判定为封锁后、重新入队前调用。
+        可重写以修改请求（如切换代理）。
+
+        :param request: 原请求对象
+        :param response: 被封锁的响应
+        :return: 修改后的请求对象
+        """
         return request
 
     def __repr__(self) -> str:
-        """String representation of the spider."""
         return f"<{self.__class__.__name__} '{self.name}'>"
 
     def configure_sessions(self, manager: SessionManager) -> None:
-        """Configure sessions for this spider.
+        """配置会话管理器
 
-        Override this method to add custom sessions.
-        The default implementation creates a FetcherSession session.
+        【功能说明】
+        默认创建一个 FetcherSession 会话。
+        可重写以添加多个不同类型的会话。
 
-        The first session added becomes the default for `start_requests()` unless specified otherwise.
+        【使用示例】
+        >>> def configure_sessions(self, manager):
+        ...     manager.add("fast", FetcherSession(impersonate="chrome"))
+        ...     manager.add("stealth", StealthySession(headless=True), lazy=True)
 
-        :param manager: SessionManager to configure
+        :param manager: 会话管理器实例
         """
         from scrapling.fetchers import FetcherSession
 
         manager.add("default", FetcherSession())
 
     def pause(self):
-        """Request graceful shutdown of the crawling process."""
+        """请求暂停爬取"""
         if self._engine:
             self._engine.request_pause()
         else:
             raise RuntimeError("No active crawl to stop")
 
     def _setup_signal_handler(self) -> None:
-        """Set up SIGINT handler for graceful pause."""
+        """设置 SIGINT 信号处理器，支持 Ctrl+C 优雅暂停"""
 
         def handler(_signum: int, _frame: Any) -> None:
             if self._engine:
                 self._engine.request_pause()
             else:
-                # No engine yet, just raise KeyboardInterrupt
                 raise KeyboardInterrupt
 
         try:
@@ -238,7 +362,7 @@ class Spider(ABC):
             self._original_sigint_handler = None
 
     def _restore_signal_handler(self) -> None:
-        """Restore original SIGINT handler."""
+        """恢复原始 SIGINT 信号处理器"""
         if self._original_sigint_handler is not None:
             try:
                 signal.signal(signal.SIGINT, self._original_sigint_handler)
@@ -246,6 +370,7 @@ class Spider(ABC):
                 pass
 
     async def __run(self) -> CrawlResult:
+        """内部运行方法"""
         token = set_logger(self.logger)
         try:
             self._engine = CrawlerEngine(self, self._session_manager, self.crawldir, self._interval)
@@ -255,32 +380,33 @@ class Spider(ABC):
         finally:
             self._engine = None
             reset_logger(token)
-            # Close any file handlers to release file resources.
             if self.log_file:
                 for handler in self.logger.handlers:
                     if isinstance(handler, logging.FileHandler):
                         handler.close()
 
     def start(self, use_uvloop: bool = False, **backend_options: Any) -> CrawlResult:
-        """Run the spider and return results.
+        """启动爬虫（主入口方法）
 
-        This is the main entry point for running a spider.
-        Handles async execution internally via anyio.
+        【功能说明】
+        运行爬虫并返回结果。内部处理异步执行。
 
-        Pressing Ctrl+C will initiate graceful shutdown (waits for active tasks to complete).
-        Pressing Ctrl+C a second time will force immediate stop.
+        【交互控制】
+        - 第一次 Ctrl+C: 优雅暂停（等待活动任务完成）
+        - 第二次 Ctrl+C: 强制停止
 
-        If crawldir is set, a checkpoint will also be saved on graceful shutdown,
-        allowing you to resume the crawl later by running the spider again.
+        【断点续爬】
+        如果设置了 crawldir，优雅暂停时会保存检查点，
+        再次运行时自动从断点恢复。
 
-        :param use_uvloop: Whether to use the faster uvloop/winloop event loop implementation, if available.
-        :param backend_options: Asyncio backend options to be used with `anyio.run`
+        :param use_uvloop: 是否使用更快的 uvloop 事件循环
+        :param backend_options: 传递给 anyio.run 的后端选项
+        :return: CrawlResult 对象，包含爬取结果和统计信息
         """
         backend_options = backend_options or {}
         if use_uvloop:
             backend_options.update({"use_uvloop": True})
 
-        # Set up SIGINT handler for graceful shutdown
         self._setup_signal_handler()
         try:
             return anyio.run(self.__run, backend="asyncio", backend_options=backend_options)
@@ -288,12 +414,19 @@ class Spider(ABC):
             self._restore_signal_handler()
 
     async def stream(self) -> AsyncGenerator[Dict[str, Any], None]:
-        """Stream items as they're scraped. Ideal for long-running spiders or building applications on top of the spiders.
+        """流式获取爬取结果
 
-        Must be called from an async context. Yields items one by one as they are scraped.
-        Access `spider.stats` during iteration for real-time statistics.
+        【功能说明】
+        以异步生成器形式实时返回爬取的数据项。
+        适用于长时间运行的爬虫或构建上层应用。
 
-        Note: SIGINT handling for pause/resume is not available in stream mode.
+        【使用示例】
+        >>> async for item in spider.stream():
+        ...     print(item)
+        ...     print(spider.stats)  # 实时统计
+
+        【注意】
+        流式模式下不支持 SIGINT 暂停/恢复。
         """
         token = set_logger(self.logger)
         try:
@@ -310,7 +443,7 @@ class Spider(ABC):
 
     @property
     def stats(self) -> CrawlStats:
-        """Access current crawl stats (works during streaming)."""
+        """访问当前爬取统计（在 stream() 循环中使用）"""
         if self._engine:
             return self._engine.stats
         raise RuntimeError("No active crawl. Use this property inside `async for item in spider.stream():`")

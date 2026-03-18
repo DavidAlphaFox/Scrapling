@@ -1,3 +1,23 @@
+"""
+================================================================================
+Scrapling 爬取结果模块 (Crawl Result Module)
+================================================================================
+
+【模块功能】
+定义爬取结果和统计信息的容器类。
+
+【核心类】
+- ItemList: 爬取数据项列表，支持导出功能
+- CrawlStats: 爬取统计信息
+- CrawlResult: 完整的爬取结果
+
+【主要特性】
+1. 数据导出：支持 JSON 和 JSONL 格式
+2. 统计收集：记录请求数、响应字节、状态码等
+3. 结果封装：统一封装爬取的数据和统计
+================================================================================
+"""
+
 from pathlib import Path
 from dataclasses import dataclass, field
 
@@ -8,13 +28,22 @@ from scrapling.core._types import Any, Iterator, Dict, List, Tuple, Union
 
 
 class ItemList(list):
-    """A list of scraped items with export capabilities."""
+    """爬取数据项列表 - 支持导出功能
+
+    【功能说明】
+    继承自 Python 内置 list，添加了导出功能。
+    用于存储爬取到的数据项（通常是字典）。
+
+    【导出格式】
+    - JSON: 标准 JSON 数组格式
+    - JSONL: JSON Lines 格式（每行一个 JSON 对象）
+    """
 
     def to_json(self, path: Union[str, Path], *, indent: bool = False):
-        """Export items to a JSON file.
+        """导出为 JSON 文件
 
-        :param path: Path to the output file
-        :param indent: Pretty-print with 2-space indentation (slightly slower)
+        :param path: 输出文件路径
+        :param indent: 是否美化输出（2 空格缩进）
         """
         options = orjson.OPT_SERIALIZE_NUMPY
         if indent:
@@ -26,9 +55,12 @@ class ItemList(list):
         log.info("Saved %d items to %s", len(self), path)
 
     def to_jsonl(self, path: Union[str, Path]):
-        """Export items as JSON Lines (one JSON object per line).
+        """导出为 JSON Lines 文件
 
-        :param path: Path to the output file
+        【格式说明】
+        每行一个 JSON 对象，适合流式处理和大数据场景。
+
+        :param path: 输出文件路径
         """
         Path(path).parent.mkdir(parents=True, exist_ok=True)
         with open(path, "wb") as f:
@@ -40,7 +72,15 @@ class ItemList(list):
 
 @dataclass
 class CrawlStats:
-    """Statistics for a crawl run."""
+    """爬取统计信息 - 记录爬取过程中的各项指标
+
+    【主要统计项】
+    - 请求统计：请求数、失败数、封锁数
+    - 响应统计：响应字节数、状态码分布
+    - 数据统计：爬取项数、丢弃项数
+    - 时间统计：开始/结束时间、每秒请求数
+    - 会话统计：各会话的请求数
+    """
 
     requests_count: int = 0
     concurrent_requests: int = 0
@@ -63,26 +103,32 @@ class CrawlStats:
 
     @property
     def elapsed_seconds(self) -> float:
+        """爬取耗时（秒）"""
         return self.end_time - self.start_time
 
     @property
     def requests_per_second(self) -> float:
+        """每秒请求数"""
         if self.elapsed_seconds == 0:
             return 0.0
         return self.requests_count / self.elapsed_seconds
 
     def increment_status(self, status: int) -> None:
+        """增加状态码计数"""
         self.response_status_count[f"status_{status}"] = self.response_status_count.get(f"status_{status}", 0) + 1
 
     def increment_response_bytes(self, domain: str, count: int) -> None:
+        """增加响应字节数"""
         self.response_bytes += count
         self.domains_response_bytes[domain] = self.domains_response_bytes.get(domain, 0) + count
 
     def increment_requests_count(self, sid: str) -> None:
+        """增加请求计数"""
         self.requests_count += 1
         self.sessions_requests_count[sid] = self.sessions_requests_count.get(sid, 0) + 1
 
     def to_dict(self) -> dict[str, Any]:
+        """转换为字典格式"""
         return {
             "items_scraped": self.items_scraped,
             "items_dropped": self.items_dropped,
@@ -107,7 +153,17 @@ class CrawlStats:
 
 @dataclass
 class CrawlResult:
-    """Complete result from a spider run."""
+    """完整爬取结果 - 包含统计信息和数据项
+
+    【功能说明】
+    封装爬虫运行的完整结果，包括爬取的数据项和统计信息。
+    支持判断爬取是否正常完成。
+
+    【属性】
+    - stats: 爬取统计信息
+    - items: 爬取的数据项列表
+    - paused: 是否被暂停（而非正常完成）
+    """
 
     stats: CrawlStats
     items: ItemList
@@ -115,11 +171,13 @@ class CrawlResult:
 
     @property
     def completed(self) -> bool:
-        """True if the crawl completed normally (not paused)."""
+        """是否正常完成（未被暂停）"""
         return not self.paused
 
     def __len__(self) -> int:
+        """数据项数量"""
         return len(self.items)
 
     def __iter__(self) -> Iterator[dict[str, Any]]:
+        """迭代数据项"""
         return iter(self.items)
